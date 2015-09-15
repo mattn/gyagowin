@@ -16,7 +16,7 @@ $ mingw32-make
 
 ## License
 
-Under review
+under the GPL License
 
 ## Author
 
