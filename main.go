@@ -86,36 +86,38 @@ func drawRubberband(hdc winapi.HDC, newRect *winapi.RECT, erase bool) {
 	return
 }
 
-func savePNG(fileName string, newBMP winapi.HBITMAP) bool {
-	res := false
+func messageBox(hWnd winapi.HWND, message string) {
+	msg, _ := syscall.UTF16PtrFromString(message)
+	title, _ := syscall.UTF16PtrFromString("Gyago")
+	winapi.MessageBox(hWnd, msg, title, winapi.MB_OK|winapi.MB_ICONERROR)
+}
 
+func savePNG(fileName string, newBMP winapi.HBITMAP) error {
 	var gdiplusStartupInput winapi.GdiplusStartupInput
 	var gdiplusToken winapi.GdiplusStartupOutput
 
 	// GDI+ の初期化
 	gdiplusStartupInput.GdiplusVersion = 1
 	winapi.GdiplusStartup(&gdiplusStartupInput, &gdiplusToken)
+	defer winapi.GdiplusShutdown()
 
 	// HBITMAP から Bitmap を作成
 	var bmp *winapi.GpBitmap
 	if winapi.GdipCreateBitmapFromHBITMAP(newBMP, 0, &bmp) == 0 {
+		defer winapi.GdipDisposeImage((*winapi.GpImage)(bmp))
 		sclsid, _ := syscall.UTF16PtrFromString("{557CF406-1A04-11D3-9A73-0000F81EF32E}")
 		if clsid, err := CLSIDFromString(sclsid); err == nil {
 			fname, _ := syscall.UTF16PtrFromString(fileName)
 			if GdipSaveImageToFile(bmp, fname, clsid, nil) == 0 {
-				res = true
+				return fmt.Errorf("Cannot save image file")
 			}
-			winapi.GdipDisposeImage((*winapi.GpImage)(bmp))
 		}
 	}
 
-	// 後始末
-	winapi.GdiplusShutdown()
-
-	return res
+	return nil
 }
 
-func uploadFile(hWnd winapi.HWND, fileName string) bool {
+func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
 	endpoint := os.Getenv("GYAGO_SERVER")
 	if endpoint == "" {
 		endpoint = "http://gyazo.com/upload.cgi"
@@ -124,14 +126,14 @@ func uploadFile(hWnd winapi.HWND, fileName string) bool {
 	// get hostname for filename
 	url_, err := url.Parse(endpoint)
 	if err != nil {
-		return false
+		return "", err
 	}
 	host := strings.SplitN(url_.Host, ":", 2)[0]
 
 	// make content
 	content, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		return false
+		return "", err
 	}
 
 	// %Y%m%d%H%M%S
@@ -143,27 +145,27 @@ func uploadFile(hWnd winapi.HWND, fileName string) bool {
 	err = w.WriteField("id", id)
 	part, err := w.CreateFormFile("imagedata", host)
 	if err != nil {
-		return false
+		return "", err
 	}
 	part.Write(content)
 	err = w.Close()
 	if err != nil {
-		return false
+		return "", err
 	}
 	body := strings.NewReader(b.String())
 
 	// then, upload
 	res, err := http.Post(endpoint, w.FormDataContentType(), body)
 	if err != nil {
-		return false
+		return "", err
 	}
 	defer res.Body.Close()
 
 	content, err = ioutil.ReadAll(res.Body)
 	if err != nil {
-		return false
+		return "", err
 	}
-	return exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", string(content)).Run() == nil
+	return string(content), nil
 }
 
 func toUTF16(s string) (*uint16, int32) {
@@ -296,15 +298,16 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 			tmpFile.Close()
 			fileName := tmpFile.Name()
 
-			if savePNG(fileName, winapi.HBITMAP(newBMP)) {
-				if !uploadFile(hWnd, fileName) {
-				}
-				println(fileName)
-			} else {
+			if err := savePNG(fileName, winapi.HBITMAP(newBMP)); err != nil {
 				// PNG保存失敗...
-				errmsg, _ := syscall.UTF16PtrFromString("Cannot save png image")
-				errtitle, _ := syscall.UTF16PtrFromString("Gyago")
-				winapi.MessageBox(hWnd, errmsg, errtitle, winapi.MB_OK|winapi.MB_ICONERROR)
+				messageBox(hWnd, "Cannot save png image")
+			} else {
+				postUrl, err := uploadFile(hWnd, fileName)
+				if err != nil {
+					messageBox(hWnd, fmt.Sprintf("Cannot upload image: %v", err.Error()))
+				} else {
+					exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", string(postUrl)).Run()
+				}
 			}
 
 			// 後始末
