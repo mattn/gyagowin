@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"mime/multipart"
@@ -128,13 +129,15 @@ func savePNG(fileName string, newBMP winapi.HBITMAP) error {
 }
 
 func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
-	endpoint := os.Getenv("GYAGO_SERVER")
-	if endpoint == "" {
-		endpoint = "http://gyazo.com/upload.cgi"
+	ep := os.Getenv("GYAGO_SERVER")
+	if *endpoint != "" {
+		ep = *endpoint
+	} else {
+		ep = "http://gyazo.com/upload.cgi"
 	}
 
 	// get hostname for filename
-	url_, err := url.Parse(endpoint)
+	url_, err := url.Parse(ep)
 	if err != nil {
 		return "", err
 	}
@@ -165,7 +168,7 @@ func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
 	body := strings.NewReader(b.String())
 
 	// then, upload
-	res, err := http.Post(endpoint, w.FormDataContentType(), body)
+	res, err := http.Post(ep, w.FormDataContentType(), body)
 	if err != nil {
 		return "", err
 	}
@@ -486,20 +489,37 @@ func InitInstance(hInstance winapi.HINSTANCE, nCmdShow int) bool {
 	return true
 }
 
+var (
+	endpoint = flag.String("e", "", "endpoint (default: http://gyazo.com/upload.cgi)")
+)
+
 func main() {
-	hInstance := winapi.GetModuleHandle(nil)
+	flag.Parse()
 
-	MyRegisterClass(hInstance)
+	if flag.NArg() > 0 {
+		for _, fileName := range flag.Args() {
+			postUrl, err := uploadFile(0, fileName)
+			if err != nil {
+				messageBox(0, fmt.Sprintf("Cannot upload image: %v", err.Error()))
+			} else {
+				exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", string(postUrl)).Run()
+			}
+		}
+	} else {
+		hInstance := winapi.GetModuleHandle(nil)
 
-	if InitInstance(hInstance, winapi.SW_SHOW) == false {
-		return
+		MyRegisterClass(hInstance)
+
+		if InitInstance(hInstance, winapi.SW_SHOW) == false {
+			return
+		}
+
+		var msg winapi.MSG
+		for winapi.GetMessage(&msg, 0, 0, 0) != 0 {
+			winapi.TranslateMessage(&msg)
+			winapi.DispatchMessage(&msg)
+		}
+
+		os.Exit(int(msg.WParam))
 	}
-
-	var msg winapi.MSG
-	for winapi.GetMessage(&msg, 0, 0, 0) != 0 {
-		winapi.TranslateMessage(&msg)
-		winapi.DispatchMessage(&msg)
-	}
-
-	os.Exit(int(msg.WParam))
 }
