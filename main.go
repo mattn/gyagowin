@@ -98,22 +98,32 @@ func savePNG(fileName string, newBMP winapi.HBITMAP) error {
 
 	// GDI+ の初期化
 	gdiplusStartupInput.GdiplusVersion = 1
-	winapi.GdiplusStartup(&gdiplusStartupInput, &gdiplusToken)
+	if winapi.GdiplusStartup(&gdiplusStartupInput, &gdiplusToken) != 0 {
+		return fmt.Errorf("failed to initialize GDI+")
+	}
 	defer winapi.GdiplusShutdown()
 
 	// HBITMAP から Bitmap を作成
 	var bmp *winapi.GpBitmap
-	if winapi.GdipCreateBitmapFromHBITMAP(newBMP, 0, &bmp) == 0 {
-		defer winapi.GdipDisposeImage((*winapi.GpImage)(bmp))
-		sclsid, _ := syscall.UTF16PtrFromString("{557CF406-1A04-11D3-9A73-0000F81EF32E}")
-		if clsid, err := CLSIDFromString(sclsid); err == nil {
-			fname, _ := syscall.UTF16PtrFromString(fileName)
-			if GdipSaveImageToFile(bmp, fname, clsid, nil) == 0 {
-				return fmt.Errorf("Cannot save image file")
-			}
-		}
+	if winapi.GdipCreateBitmapFromHBITMAP(newBMP, 0, &bmp) != 0 {
+		return fmt.Errorf("failed to create HBITMAP")
 	}
-
+	defer winapi.GdipDisposeImage((*winapi.GpImage)(bmp))
+	sclsid, err := syscall.UTF16PtrFromString("{557CF406-1A04-11D3-9A73-0000F81EF32E}")
+	if err != nil {
+		return err
+	}
+	clsid, err := CLSIDFromString(sclsid)
+	if err != nil {
+		return err
+	}
+	fname, err := syscall.UTF16PtrFromString(fileName)
+	if err != nil {
+		return err
+	}
+	if GdipSaveImageToFile(bmp, fname, clsid, nil) != 0 {
+		return fmt.Errorf("failed to call PNG encoder")
+	}
 	return nil
 }
 
@@ -300,7 +310,7 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 
 			if err := savePNG(fileName, winapi.HBITMAP(newBMP)); err != nil {
 				// PNG保存失敗...
-				messageBox(hWnd, "Cannot save png image")
+				messageBox(hWnd, fmt.Sprintf("Cannot save image file: %v", err.Error()))
 			} else {
 				postUrl, err := uploadFile(hWnd, fileName)
 				if err != nil {
