@@ -129,11 +129,9 @@ func savePNG(fileName string, newBMP winapi.HBITMAP) error {
 }
 
 func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
-	ep := os.Getenv("GYAGO_SERVER")
+	ep := "http://gyazo.com/upload.cgi"
 	if *endpoint != "" {
 		ep = *endpoint
-	} else {
-		ep = "http://gyazo.com/upload.cgi"
 	}
 
 	// get hostname for filename
@@ -490,7 +488,7 @@ func InitInstance(hInstance winapi.HINSTANCE, nCmdShow int) bool {
 }
 
 var (
-	endpoint = flag.String("e", "", "endpoint (default: http://gyazo.com/upload.cgi)")
+	endpoint = flag.String("e", os.Getenv("GYAGO_SERVER"), "endpoint (default: http://gyazo.com/upload.cgi)")
 )
 
 func main() {
