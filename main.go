@@ -129,7 +129,7 @@ func savePNG(fileName string, newBMP winapi.HBITMAP) error {
 }
 
 func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
-	ep := "http://gyazo.com/upload.cgi"
+	ep := "http://upload.gyazo.com/upload.cgi"
 	if *endpoint != "" {
 		ep = *endpoint
 	}
@@ -166,7 +166,13 @@ func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
 	body := strings.NewReader(b.String())
 
 	// then, upload
-	res, err := http.Post(ep, w.FormDataContentType(), body)
+	req, err := http.NewRequest("POST", ep, body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("User-Agent", "Gyagowin/1.0")
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
 	}
