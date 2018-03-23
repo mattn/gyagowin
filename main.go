@@ -133,6 +133,9 @@ func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
 	if *endpoint != "" {
 		ep = *endpoint
 	}
+	if *proxy != "" {
+		os.Setenv("http_proxy", *proxy)
+	}
 
 	// get hostname for filename
 	url_, err := url.Parse(ep)
@@ -495,6 +498,7 @@ func InitInstance(hInstance winapi.HINSTANCE, nCmdShow int) bool {
 
 var (
 	endpoint = flag.String("e", os.Getenv("GYAGO_SERVER"), "endpoint (default: https://gyazo.com/upload.cgi)")
+	proxy    = flag.String("p", "", "proxy server")
 )
 
 func main() {
