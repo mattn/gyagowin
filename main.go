@@ -134,7 +134,11 @@ func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
 		ep = *endpoint
 	}
 	if *proxy != "" {
-		os.Setenv("http_proxy", *proxy)
+		proxyUrl, err := url.Parse(*proxy)
+		if err != nil {
+			return "", err
+		}
+		http.DefaultTransport = &http.Transport{Proxy: http.ProxyURL(proxyUrl)}
 	}
 
 	// get hostname for filename
