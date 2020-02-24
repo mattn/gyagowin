@@ -313,7 +313,15 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 			winapi.ReleaseCapture()
 
 			clipRect.Right = int32(winapi.LOWORD(uint32(lParam))) + ofX
+
 			clipRect.Bottom = int32(winapi.HIWORD(uint32(lParam))) + ofY
+			// 座標チェック
+			if clipRect.Right < clipRect.Left {
+				clipRect.Left, clipRect.Right = clipRect.Right, clipRect.Left
+			}
+			if clipRect.Bottom < clipRect.Top {
+				clipRect.Top, clipRect.Bottom = clipRect.Bottom, clipRect.Top
+			}
 
 			hMonitor := winapi.MonitorFromWindow(hWnd, winapi.MONITOR_DEFAULTTONEAREST)
 			var moninfo MONITORINFOEX
@@ -325,23 +333,11 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 			procEnumDisplaySettings.Call(uintptr(unsafe.Pointer(&moninfo.DeviceName[0])), ENUM_CURRENT_SETTINGS, uintptr(unsafe.Pointer(&devmode)))
 			dx := float64(devmode.DmPelsWidth) / float64(winapi.GetSystemMetrics(winapi.SM_CXVIRTUALSCREEN))
 			dy := float64(devmode.DmPelsHeight) / float64(winapi.GetSystemMetrics(winapi.SM_CYVIRTUALSCREEN))
-			clipRect.Left = int32(float64(clipRect.Left) * dx)
-			clipRect.Right = int32(float64(clipRect.Right) * dx)
-			clipRect.Top = int32(float64(clipRect.Top) * dy)
-			clipRect.Bottom = int32(float64(clipRect.Bottom) * dy)
 
 			hdc := winapi.GetDC(0)
 
 			// 線を消す
 			drawRubberband(hdc, &clipRect, true)
-
-			// 座標チェック
-			if clipRect.Right < clipRect.Left {
-				clipRect.Left, clipRect.Right = clipRect.Right, clipRect.Left
-			}
-			if clipRect.Bottom < clipRect.Top {
-				clipRect.Top, clipRect.Bottom = clipRect.Bottom, clipRect.Top
-			}
 
 			// 画像のキャプチャ
 			iWidth := (clipRect.Right - clipRect.Left + 1)
@@ -354,10 +350,13 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 				break
 			}
 
+			dWidth := int32(float64(iWidth) * float64(dx))
+			dHeight := int32(float64(iHeight) * float64(dy))
+
 			var bmpinfo winapi.BITMAPINFO
 			bmpinfo.BmiHeader.BiSize = uint32(unsafe.Sizeof(winapi.BITMAPINFOHEADER{}))
-			bmpinfo.BmiHeader.BiWidth = iWidth
-			bmpinfo.BmiHeader.BiHeight = iHeight
+			bmpinfo.BmiHeader.BiWidth = dWidth
+			bmpinfo.BmiHeader.BiHeight = dHeight
 			bmpinfo.BmiHeader.BiPlanes = 1
 			bmpinfo.BmiHeader.BiBitCount = 32
 			bmpinfo.BmiHeader.BiCompression = winapi.BI_RGB
@@ -369,8 +368,14 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 			// 関連づけ
 			winapi.SelectObject(newDC, winapi.HGDIOBJ(newBMP))
 
+			var imageRect winapi.RECT
+			imageRect.Left = int32(float64(clipRect.Left) * dx)
+			imageRect.Right = int32(float64(clipRect.Right) * dx)
+			imageRect.Top = int32(float64(clipRect.Top) * dy)
+			imageRect.Bottom = int32(float64(clipRect.Bottom) * dy)
+
 			// 画像を取得
-			winapi.StretchBlt(newDC, 0, 0, iWidth, iHeight, hdc, clipRect.Left, clipRect.Top, iWidth, iHeight, winapi.SRCCOPY|winapi.CAPTUREBLT)
+			winapi.BitBlt(newDC, 0, 0, dWidth, dHeight, hdc, imageRect.Left, imageRect.Top, winapi.SRCCOPY)
 
 			// ウィンドウを隠す!
 			winapi.ShowWindow(hWnd, winapi.SW_HIDE)
