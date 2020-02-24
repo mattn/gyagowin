@@ -20,16 +20,27 @@ import (
 )
 
 const (
-	MAX_PATH     = 260
-	LWA_COLORKEY = 0x00001
-	LWA_ALPHA    = 0x00002
+	MAX_PATH              = 260
+	LWA_COLORKEY          = 0x00001
+	LWA_ALPHA             = 0x00002
+	ENUM_CURRENT_SETTINGS = 0xFFFFFFFF
 )
 
 var (
 	onClip    = false
 	firstDraw = true
-	clipRect  = winapi.RECT{0, 0, 0, 0}
-	lastRect  = winapi.RECT{0, 0, 0, 0}
+	clipRect  = winapi.RECT{
+		Top:    0,
+		Left:   0,
+		Right:  0,
+		Bottom: 0,
+	}
+	lastRect = winapi.RECT{
+		Top:    0,
+		Left:   0,
+		Right:  0,
+		Bottom: 0,
+	}
 	ofX, ofY  int32
 	hLayerWnd winapi.HWND
 
@@ -37,6 +48,8 @@ var (
 	moduser32                      = syscall.NewLazyDLL("user32.dll")
 	procCreateCompatibleBitmap     = modgdi32.NewProc("CreateCompatibleBitmap")
 	procSetLayeredWindowAttributes = moduser32.NewProc("SetLayeredWindowAttributes")
+	procGetMonitorInfo             = moduser32.NewProc("GetMonitorInfoW")
+	procEnumDisplaySettings        = moduser32.NewProc("EnumDisplaySettingsW")
 
 	modgdiplus              = syscall.NewLazyDLL("gdiplus.dll")
 	procGdipSaveImageToFile = modgdiplus.NewProc("GdipSaveImageToFile")
@@ -55,6 +68,20 @@ type EncoderParameter struct {
 type EncoderParameters struct {
 	Count     uint32
 	Parameter [1]EncoderParameter
+}
+
+type MONITORINFO struct {
+	CbSize    uint32
+	RcMonitor winapi.RECT
+	RcWork    winapi.RECT
+	DwFlags   uint32
+}
+
+const CCHDEVICENAME = 32
+
+type MONITORINFOEX struct {
+	MONITORINFO
+	DeviceName [CCHDEVICENAME]uint16
 }
 
 func drawRubberband(hdc winapi.HDC, newRect *winapi.RECT, erase bool) {
@@ -207,6 +234,14 @@ func SetLayeredWindowAttributes(hwnd winapi.HWND, cr winapi.COLORREF, alpha byte
 	return r0 != 0
 }
 
+func GetMonitorInfo(hMonitor winapi.HMONITOR, lmpi *MONITORINFOEX) bool {
+	ret, _, _ := procGetMonitorInfo.Call(
+		uintptr(hMonitor),
+		uintptr(unsafe.Pointer(lmpi)),
+	)
+	return ret != 0
+}
+
 func CLSIDFromString(str *uint16) (clsid *winapi.GUID, err error) {
 	var guid winapi.GUID
 	err = nil
@@ -280,6 +315,21 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 			clipRect.Right = int32(winapi.LOWORD(uint32(lParam))) + ofX
 			clipRect.Bottom = int32(winapi.HIWORD(uint32(lParam))) + ofY
 
+			hMonitor := winapi.MonitorFromWindow(hWnd, winapi.MONITOR_DEFAULTTONEAREST)
+			var moninfo MONITORINFOEX
+			moninfo.CbSize = uint32(unsafe.Sizeof(moninfo))
+			GetMonitorInfo(hMonitor, &moninfo)
+
+			var devmode winapi.DEVMODE
+			devmode.DmSize = uint16(unsafe.Sizeof(devmode))
+			procEnumDisplaySettings.Call(uintptr(unsafe.Pointer(&moninfo.DeviceName[0])), ENUM_CURRENT_SETTINGS, uintptr(unsafe.Pointer(&devmode)))
+			dx := float64(devmode.DmPelsWidth) / float64(winapi.GetSystemMetrics(winapi.SM_CXVIRTUALSCREEN))
+			dy := float64(devmode.DmPelsHeight) / float64(winapi.GetSystemMetrics(winapi.SM_CYVIRTUALSCREEN))
+			clipRect.Left = int32(float64(clipRect.Left) * dx)
+			clipRect.Right = int32(float64(clipRect.Right) * dx)
+			clipRect.Top = int32(float64(clipRect.Top) * dy)
+			clipRect.Bottom = int32(float64(clipRect.Bottom) * dy)
+
 			hdc := winapi.GetDC(0)
 
 			// 線を消す
@@ -304,15 +354,23 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 				break
 			}
 
+			var bmpinfo winapi.BITMAPINFO
+			bmpinfo.BmiHeader.BiSize = uint32(unsafe.Sizeof(winapi.BITMAPINFOHEADER{}))
+			bmpinfo.BmiHeader.BiWidth = iWidth
+			bmpinfo.BmiHeader.BiHeight = iHeight
+			bmpinfo.BmiHeader.BiPlanes = 1
+			bmpinfo.BmiHeader.BiBitCount = 32
+			bmpinfo.BmiHeader.BiCompression = winapi.BI_RGB
+
 			// ビットマップバッファを作成
-			newBMP := CreateCompatibleBitmap(hdc, iWidth, iHeight)
+			newBMP := winapi.CreateDIBSection(hdc, &bmpinfo.BmiHeader, winapi.DIB_RGB_COLORS, nil, 0, 0)
 			newDC := winapi.CreateCompatibleDC(hdc)
 
 			// 関連づけ
-			winapi.SelectObject(newDC, newBMP)
+			winapi.SelectObject(newDC, winapi.HGDIOBJ(newBMP))
 
 			// 画像を取得
-			winapi.BitBlt(newDC, 0, 0, iWidth, iHeight, hdc, clipRect.Left, clipRect.Top, winapi.SRCCOPY)
+			winapi.StretchBlt(newDC, 0, 0, iWidth, iHeight, hdc, clipRect.Left, clipRect.Top, iWidth, iHeight, winapi.SRCCOPY|winapi.CAPTUREBLT)
 
 			// ウィンドウを隠す!
 			winapi.ShowWindow(hWnd, winapi.SW_HIDE)
@@ -338,7 +396,7 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 			os.Remove(fileName)
 
 			winapi.DeleteDC(newDC)
-			winapi.DeleteObject(newBMP)
+			winapi.DeleteObject(winapi.HGDIOBJ(newBMP))
 
 			winapi.ReleaseDC(0, hdc)
 			winapi.DestroyWindow(hWnd)
@@ -358,7 +416,12 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 
 func LayerWndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) uintptr {
 	var hdc winapi.HDC
-	clipRect := winapi.RECT{0, 0, 500, 500}
+	clipRect := winapi.RECT{
+		Top:    0,
+		Left:   0,
+		Right:  500,
+		Bottom: 500,
+	}
 	var hBrush winapi.HBRUSH
 	var hPen winapi.HPEN
 	var hFont winapi.HFONT
@@ -391,7 +454,7 @@ func LayerWndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintp
 			winapi.CLIP_DEFAULT_PRECIS,          //クリッピング精度
 			winapi.PROOF_QUALITY,                //出力品質
 			winapi.FIXED_PITCH|winapi.FF_MODERN, //ピッチとファミリー
-			fontnm) //書体名
+			fontnm)                              //書体名
 
 		winapi.SelectObject(hdc, winapi.HGDIOBJ(hFont))
 
@@ -421,11 +484,9 @@ func LayerWndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintp
 
 		return 1
 
-		break
 	default:
 		return winapi.DefWindowProc(hWnd, message, wParam, lParam)
 	}
-	return 0
 }
 
 func MyRegisterClass(hInstance winapi.HINSTANCE) winapi.ATOM {
