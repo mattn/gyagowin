@@ -204,6 +204,12 @@ func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	if *authenticate != "" {
+		if token := strings.SplitN(*authenticate, ":", 2); len(token) == 2 {
+			req.SetBasicAuth(token[0], token[1])
+		}
+	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	req.Header.Set("User-Agent", "Gyagowin/1.0")
 	res, err := http.DefaultClient.Do(req)
@@ -567,8 +573,9 @@ func InitInstance(hInstance winapi.HINSTANCE, nCmdShow int) bool {
 }
 
 var (
-	endpoint = flag.String("e", os.Getenv("GYAGO_SERVER"), "endpoint (default: https://gyazo.com/upload.cgi)")
-	proxy    = flag.String("p", "", "proxy server")
+	endpoint     = flag.String("e", os.Getenv("GYAGO_SERVER"), "endpoint (default: https://gyazo.com/upload.cgi)")
+	proxy        = flag.String("p", "", "proxy server")
+	authenticate = flag.String("a", os.Getenv("GYAGO_BASICAUTH"), "basic authentication")
 )
 
 func main() {
