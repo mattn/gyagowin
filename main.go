@@ -399,7 +399,10 @@ func WndProc(hWnd winapi.HWND, message uint32, wParam uintptr, lParam uintptr) u
 				if err != nil {
 					messageBox(hWnd, fmt.Sprintf("Cannot upload image: %v", err.Error()))
 				} else {
-					exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", string(postUrl)).Run()
+					err = exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", postUrl).Run()
+					if err != nil {
+						messageBox(hWnd, fmt.Sprintf("Cannot open browser: %v", err.Error()))
+					}
 				}
 			}
 
