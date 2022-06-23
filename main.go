@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -156,10 +158,6 @@ func savePNG(fileName string, newBMP winapi.HBITMAP) error {
 }
 
 func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
-	ep := "https://upload.gyazo.com/upload.cgi"
-	if *endpoint != "" {
-		ep = *endpoint
-	}
 	if *proxy != "" {
 		proxyUrl, err := url.Parse(*proxy)
 		if err != nil {
@@ -169,11 +167,14 @@ func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
 	}
 
 	// get hostname for filename
-	url_, err := url.Parse(ep)
+	url_, err := url.Parse(*endpoint)
 	if err != nil {
 		return "", err
 	}
-	host := strings.SplitN(url_.Host, ":", 2)[0]
+	host, _, err := net.SplitHostPort(url_.Host)
+	if err != nil {
+		host = url_.Host
+	}
 
 	// make content
 	content, err := ioutil.ReadFile(fileName)
@@ -200,7 +201,7 @@ func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
 	body := strings.NewReader(b.String())
 
 	// then, upload
-	req, err := http.NewRequest("POST", ep, body)
+	req, err := http.NewRequest("POST", *endpoint, body)
 	if err != nil {
 		return "", err
 	}
@@ -221,6 +222,9 @@ func uploadFile(hWnd winapi.HWND, fileName string) (string, error) {
 	content, err = ioutil.ReadAll(res.Body)
 	if err != nil {
 		return "", err
+	}
+	if res.StatusCode != 200 && res.StatusCode != 201 {
+		return "", errors.New(string(content))
 	}
 	return string(content), nil
 }
@@ -575,13 +579,28 @@ func InitInstance(hInstance winapi.HINSTANCE, nCmdShow int) bool {
 	return true
 }
 
+func defaultValue(name, def string) string {
+	value := os.Getenv(name)
+	if value == "" {
+		value = def
+	}
+	return value
+}
+
 var (
-	endpoint     = flag.String("e", os.Getenv("GYAGO_SERVER"), "endpoint (default: https://gyazo.com/upload.cgi)")
+	endpoint     = flag.String("e", defaultValue("GYAGO_SERVER", "https://gyazo.com/upload.cgi"), "endpoint")
+	authenticate = flag.String("a", defaultValue("GYAGO_BASICAUTH", ""), "basic authentication")
 	proxy        = flag.String("p", "", "proxy server")
-	authenticate = flag.String("a", os.Getenv("GYAGO_BASICAUTH"), "basic authentication")
 )
 
 func main() {
+	flag.Usage = func() {
+		var buf bytes.Buffer
+		flag.CommandLine.SetOutput(&buf)
+		flag.PrintDefaults()
+		messageBox(0, buf.String())
+		os.Exit(2)
+	}
 	flag.Parse()
 
 	if flag.NArg() > 0 {
