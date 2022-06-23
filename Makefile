@@ -5,3 +5,6 @@ gyagowin.exe : main.go gyagowin.syso
 
 gyagowin.syso : gyagowin.rc
 	windres gyagowin.rc gyagowin.syso
+
+clean:
+	-rm gyagowin.exe
