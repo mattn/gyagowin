@@ -21,6 +21,12 @@ import (
 	"github.com/cwchiu/go-winapi"
 )
 
+const name = "gyagowin"
+
+const version = "0.0.0"
+
+var revision = "HEAD"
+
 const (
 	MAX_PATH              = 260
 	LWA_COLORKEY          = 0x00001
