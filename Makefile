@@ -50,8 +50,8 @@ bump: $(GOBIN)/gobump
 ifneq ($(shell git status --porcelain),)
 	$(error git workspace is dirty)
 endif
-ifneq ($(shell git rev-parse --abbrev-ref HEAD),main)
-	$(error current branch is not main)
+ifneq ($(shell git rev-parse --abbrev-ref HEAD),master)
+	$(error current branch is not master)
 endif
 	@gobump up -w .
 	git commit -am "bump up version to $(VERSION)"
